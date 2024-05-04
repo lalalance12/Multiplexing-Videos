@@ -16,19 +16,13 @@ def process_frame(frame, rank):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
     elif rank == 3:
-        # Process 3: Apply high vibrance
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        hsv[:, :, 1] = cv2.add(hsv[:, :, 1], 100)
-        return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-    elif rank == 4:
-        # Process 4: Apply high green hue
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        hsv[:, :, 0] = 60  # Set hue to green
-        return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-    return frame  # If rank 0 or any other rank, return the frame as is
+        # Process 3: Add your own processing here
+        pass
+    return frame
+
 
 def main():
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     
     while True:
         ret, frame = cap.read()
