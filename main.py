@@ -1,59 +1,104 @@
-from mpi4py import MPI
 import cv2
+import tkinter as tk
+from tkinter import *
+from PIL import Image, ImageTk
+import threading
 import numpy as np
 
-# Initialize MPI
-comm = MPI.COMM_WORLD
-rank = comm.Get_rank()
-size = comm.Get_size()
+# Initialize capture from webcam
+cap = cv2.VideoCapture(0)
 
-# Define tasks
-tasks = ["grayscale", "edge_detection", "object_detection", "blur"]
+# Define the desired size for each small frame
+frame_width, frame_height = 320, 240
 
-# Video capture
-cap = cv2.VideoCapture(0)  # Change '0' to the appropriate video source
+# Shared frame storage
+frame_storage = {
+    'original': None,
+    'blur': None,
+    'vibrance': None,
+    'greyscale': None,
+    'high_green_hue': None
+}
 
-while True:
-    # Capture frame
-    ret, frame = cap.read()
-    if not ret:
-        break
+def fetch_video():
+    while True:
+        ret, frame = cap.read()
+        if ret:
+            frame_storage['original'] = frame
 
-    # Broadcast the frame to all processors
-    frame = comm.bcast(frame, root=0)
+def apply_blur():
+    while True:
+        if frame_storage['original'] is not None:
+            frame_storage['blur'] = cv2.GaussianBlur(frame_storage['original'], (21, 21), 0)
 
-    # Scatter tasks
-    task = tasks[rank]
+def apply_vibrance():
+    while True:
+        if frame_storage['original'] is not None:
+            frame = frame_storage['original']
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            hsv[:, :, 1] = cv2.add(hsv[:, :, 1], 100)  # increase saturation
+            frame_storage['vibrance'] = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-    # Perform tasks on the frame
-    if task == "grayscale":
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    elif task == "edge_detection":
-        frame = cv2.Canny(frame, 100, 200)
-    elif task == "object_detection":
-        # Implement object detection code here
-        pass
-    elif task == "blur":
-        frame = cv2.GaussianBlur(frame, (5, 5), 0)
+def apply_greyscale():
+    while True:
+        if frame_storage['original'] is not None:
+            grey = cv2.cvtColor(frame_storage['original'], cv2.COLOR_BGR2GRAY)
+            frame_storage['greyscale'] = cv2.cvtColor(grey, cv2.COLOR_GRAY2BGR)
 
-    # Reduce the size of the frame
-    frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+def apply_high_green_hue():
+    while True:
+        if frame_storage['original'] is not None:
+            frame = frame_storage['original']
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            hsv[:, :, 0] = 60  # set hue to green
+            frame_storage['high_green_hue'] = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-    # Gather the processed frames
-    processed_frames = comm.gather(frame, root=0)
+def update_display():
+    # Ensure all frames are available and resized
+    if all(frame is not None for frame in frame_storage.values()):
+        resized_frames = {effect: cv2.resize(frame_storage[effect], (frame_width, frame_height)) for effect in frame_storage}
+        
+        # Row 1: Blur and Vibrance
+        row1 = cv2.hconcat([resized_frames['blur'], resized_frames['vibrance']])
+        # Row 2: Greyscale and High Green Hue
+        row2 = cv2.hconcat([resized_frames['greyscale'], resized_frames['high_green_hue']])
+        # Row 3: Original, centered
+        original_resized = cv2.resize(frame_storage['original'], (2*frame_width, frame_height))  # Double width for centering
+        row3 = original_resized
 
-    # Concatenate and display the processed frames (if rank == 0)
-    if rank == 0:
-        concatenated_frame = np.concatenate(processed_frames, axis=1)
-        cv2.imshow("Consolidated Frame", concatenated_frame)
+        # Combine all rows vertically
+        combined_frame = cv2.vconcat([row1, row2, row3])
+        
+        # Convert to a format suitable for Tkinter
+        img = Image.fromarray(combined_frame)
+        imgtk = ImageTk.PhotoImage(image=img)
+        lbl_video.imgtk = imgtk
+        lbl_video.configure(image=imgtk)
+    lbl_video.after(10, update_display)
 
-    # Press 'q' to exit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+# Set up the GUI
+root = tk.Tk()
+root.title("Video Processing")
+lbl_video = tk.Label(root)
+lbl_video.pack()
 
-# Release the capture and close all windows
-cap.release()
-cv2.destroyAllWindows()
+# Start video fetch and processing threads
+threads = [
+    threading.Thread(target=fetch_video),
+    threading.Thread(target=apply_blur),
+    threading.Thread(target=apply_vibrance),
+    threading.Thread(target=apply_greyscale),
+    threading.Thread(target=apply_high_green_hue)
+]
 
-# Finalize MPI
-comm.Barrier()
+for thread in threads:
+    thread.daemon = True
+    thread.start()
+
+# Start the video display in a separate thread
+thread_display = threading.Thread(target=update_display)
+thread_display.daemon = True
+thread_display.start()
+
+# Start the Tkinter main loop
+root.mainloop()
