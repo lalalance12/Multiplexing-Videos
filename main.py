@@ -16,14 +16,13 @@ def process_frame(frame, rank):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
     elif rank == 3:
-        # Process 3: Add your own processing here
-        pass
+        # Process 3: Rotate the image by 90 degrees clockwise
+        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
     return frame
 
 
 def main():
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -44,13 +43,29 @@ def main():
 
         # Concatenate and display frames in the root process
         if rank == 0:
-            if all_frames[0] is not None:  # all_frames[0] is the original frame from rank 0
+            if all_frames[0] is not None:
+                # all_frames[0] is the original frame from rank 0
                 all_frames = all_frames[1:]  # Ignore the unprocessed frame from rank 0
-            final_frame = cv2.hconcat(all_frames) if all_frames else None
-            if final_frame is not None:
-                cv2.imshow('Video Processing MPI', final_frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
+
+                # Get the dimensions and data type of the first frame
+                ref_frame = all_frames[0]
+                ref_height, ref_width, ref_channels = ref_frame.shape
+                ref_dtype = ref_frame.dtype
+
+                # Resize and convert other frames to match the first frame
+                normalized_frames = []
+                for frame in all_frames:
+                    frame = cv2.resize(frame, (ref_width, ref_height))
+                    if frame.dtype != ref_dtype:
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2BGR, dstCn=ref_channels)
+                    normalized_frames.append(frame)
+
+                final_frame = cv2.vconcat(normalized_frames) if normalized_frames else None
+                if final_frame is not None:
+                    cv2.imshow('Video Processing MPI', final_frame)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
     cap.release()
     cv2.destroyAllWindows()
